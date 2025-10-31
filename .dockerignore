@@ -1,0 +1,18 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+todo.md
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Zone.Identifier files
+*.Zone.Identifier
+
+# Temporary files
+*.tmp
+*.log

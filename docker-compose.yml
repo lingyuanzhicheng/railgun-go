@@ -1,0 +1,12 @@
+services:
+  railgun:
+    image: moeceo/railgun:latest
+    container_name: railgun
+    network_mode: bridge
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes: 
+      - ./database:/app/database
+    environment:
+      - TZ=Asia/Shanghai
