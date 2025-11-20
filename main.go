@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -17,27 +16,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/robfig/cron/v3"
 )
-
-//go:embed templates/*
-var assets embed.FS
 
 var dbDir = "database"
 
 type Data struct {
-	AuthKey        string `json:"authkey"`
-	CDNIPSync      string `json:"cdnipsync,omitempty"`
-	ProxyIPSync    string `json:"proxyipsync,omitempty"`
-	ProxyHTTPSync  string `json:"proxyhttpsync,omitempty"`
-	ProxySock5Sync string `json:"proxysock5sync,omitempty"`
+	AuthKey          string `json:"authkey"`
+	CDNIPSync        string `json:"cdnipsync,omitempty"`
+	ProxyIPSync      string `json:"proxyipsync,omitempty"`
+	ProxyIPGroupSync string `json:"proxyipgroupsync,omitempty"`
 	// 定时任务相关字段
-	CronExpression        string `json:"cron_expression,omitempty"`
-	UUIDSyncEnabled       bool   `json:"uuid_sync_enabled,omitempty"`
-	CDNIPSyncEnabled      bool   `json:"cdnip_sync_enabled,omitempty"`
-	ProxyIPSyncEnabled    bool   `json:"proxyip_sync_enabled,omitempty"`
-	ProxyHTTPSyncEnabled  bool   `json:"proxyhttp_sync_enabled,omitempty"`
-	ProxySock5SyncEnabled bool   `json:"proxysock5_sync_enabled,omitempty"`
+	CronExpression          string `json:"cron_expression,omitempty"`
+	UUIDSyncEnabled         bool   `json:"uuid_sync_enabled,omitempty"`
+	CDNIPSyncEnabled        bool   `json:"cdnip_sync_enabled,omitempty"`
+	ProxyIPSyncEnabled      bool   `json:"proxyip_sync_enabled,omitempty"`
+	ProxyIPGroupSyncEnabled bool   `json:"proxyipgroup_sync_enabled,omitempty"`
 }
 
 type UUID struct {
@@ -138,15 +133,14 @@ func ensureDB() error {
 			return err
 		}
 	}
-	// create uuid.json, workers.json, cdnip.json, proxyip.json, cdndomain.json, proxyhttp.json, proxysock5.json
+	// create uuid.json, workers.json, cdnip.json, proxyip.json, cdndomain.json, proxyipgroup.json
 	defaults := map[string]any{
-		"uuid.json":       []any{},
-		"workers.json":    []any{},
-		"cdnip.json":      []any{},
-		"proxyip.json":    []any{},
-		"cdndomain.json":  []any{},
-		"proxyhttp.json":  []any{},
-		"proxysock5.json": []any{},
+		"uuid.json":         []any{},
+		"workers.json":      []any{},
+		"cdnip.json":        []any{},
+		"proxyip.json":      []any{},
+		"cdndomain.json":    []any{},
+		"proxyipgroup.json": map[string]int{},
 	}
 	for name, val := range defaults {
 		p := filepath.Join(dbDir, name)
@@ -194,7 +188,61 @@ func logNetworkRequest(method, url, details string, success bool) {
 		status)
 }
 
+// 加载模板函数
+func loadTemplates() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	t, err := template.ParseGlob("templates/*.html")
+	if err != nil {
+		log.Printf("parse templates error: %v", err)
+		return
+	}
+	templates = t
+	log.Println("Templates reloaded")
+}
+
+// 监控模板文件变化
+func watchTemplates() {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("Failed to create watcher: %v", err)
+		return
+	}
+	defer watcher.Close()
+
+	// 添加templates目录到监控列表
+	err = watcher.Add("templates")
+	if err != nil {
+		log.Printf("Failed to watch templates directory: %v", err)
+		return
+	}
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			// 只关注HTML文件的写入事件
+			if event.Op&fsnotify.Write == fsnotify.Write && strings.HasSuffix(event.Name, ".html") {
+				log.Printf("Template file modified: %s", event.Name)
+				// 重新加载模板
+				loadTemplates()
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("Watcher error: %v", err)
+		}
+	}
+}
+
 func renderTemplate(w http.ResponseWriter, name string, data any) {
+	mu.Lock()
+	defer mu.Unlock()
+
 	if err := templates.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -481,23 +529,11 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// 检查是否请求proxyhttp数据
-			if r.URL.Query().Get("get_proxyhttp") == "true" {
-				b, err := os.ReadFile(filepath.Join(dbDir, "proxyhttp.json"))
+			// 检查是否请求proxyipgroup数据
+			if r.URL.Query().Get("get_proxyipgroup") == "true" {
+				b, err := os.ReadFile(filepath.Join(dbDir, "proxyipgroup.json"))
 				if err != nil {
-					http.Error(w, "proxyhttp not found", http.StatusNotFound)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				w.Write(b)
-				return
-			}
-
-			// 检查是否请求proxysock5数据
-			if r.URL.Query().Get("get_proxysock5") == "true" {
-				b, err := os.ReadFile(filepath.Join(dbDir, "proxysock5.json"))
-				if err != nil {
-					http.Error(w, "proxysock5 not found", http.StatusNotFound)
+					http.Error(w, "proxyipgroup not found", http.StatusNotFound)
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -607,13 +643,13 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		_ = saveData(d)
 		mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
-	case "save_proxyhttpsync":
+	case "save_proxyipgroupsync":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var tmp struct {
-			ProxyHTTPSync string `json:"proxyhttpsync"`
+			ProxyIPGroupSync string `json:"proxyipgroupsync"`
 		}
 		body, _ := io.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &tmp); err != nil {
@@ -622,26 +658,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		mu.Lock()
 		d, _ := loadData()
-		d.ProxyHTTPSync = tmp.ProxyHTTPSync
-		_ = saveData(d)
-		mu.Unlock()
-		w.WriteHeader(http.StatusNoContent)
-	case "save_proxysock5sync":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var tmp struct {
-			ProxySock5Sync string `json:"proxysock5sync"`
-		}
-		body, _ := io.ReadAll(r.Body)
-		if err := json.Unmarshal(body, &tmp); err != nil {
-			http.Error(w, "bad json", http.StatusBadRequest)
-			return
-		}
-		mu.Lock()
-		d, _ := loadData()
-		d.ProxySock5Sync = tmp.ProxySock5Sync
+		d.ProxyIPGroupSync = tmp.ProxyIPGroupSync
 		_ = saveData(d)
 		mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
@@ -720,25 +737,25 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	case "sync_proxyhttp":
+	case "sync_proxyipgroup":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		d, _ := loadData()
-		if d.ProxyHTTPSync == "" {
-			http.Error(w, "proxyhttpsync url not set", http.StatusBadRequest)
+		if d.ProxyIPGroupSync == "" {
+			http.Error(w, "proxyipgroupsync url not set", http.StatusBadRequest)
 			return
 		}
-		resp, err := http.Get(d.ProxyHTTPSync)
+		resp, err := http.Get(d.ProxyIPGroupSync)
 		if err != nil {
-			logNetworkRequest("GET", d.ProxyHTTPSync, "Proxy HTTP同步失败: "+err.Error(), false)
+			logNetworkRequest("GET", d.ProxyIPGroupSync, "Proxy IP Group同步失败: "+err.Error(), false)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer resp.Body.Close()
 
-		logNetworkRequest("GET", d.ProxyHTTPSync, "Proxy HTTP同步成功", true)
+		logNetworkRequest("GET", d.ProxyIPGroupSync, "Proxy IP Group同步成功", true)
 
 		var buf bytes.Buffer
 		if _, err := io.Copy(&buf, resp.Body); err != nil {
@@ -746,123 +763,9 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 处理IP数据，转换为新的结构
-		lines := strings.Split(buf.String(), "")
-		var ips []IPInfo
-
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-
-			parts := strings.Split(line, ",")
-			if len(parts) >= 2 {
-				ip := parts[0]
-				port := parts[1]
-				code := ""
-				asn := ""
-
-				if len(parts) >= 3 {
-					code = parts[2]
-				}
-				if len(parts) >= 4 {
-					asn = parts[3]
-				}
-
-				ips = append(ips, IPInfo{
-					IP:   ip,
-					Port: port,
-					Code: code,
-					ASN:  asn,
-				})
-			}
-		}
-
-		// 转换为JSON并保存
-		jsonData, err := json.MarshalIndent(ips, "", "  ")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
+		// 直接保存文件内容
 		mu.Lock()
-		err = os.WriteFile(filepath.Join(dbDir, "proxyhttp.json"), jsonData, 0644)
-		mu.Unlock()
-
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	case "sync_proxysock5":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		d, _ := loadData()
-		if d.ProxySock5Sync == "" {
-			http.Error(w, "proxysock5sync url not set", http.StatusBadRequest)
-			return
-		}
-		resp, err := http.Get(d.ProxySock5Sync)
-		if err != nil {
-			logNetworkRequest("GET", d.ProxySock5Sync, "Proxy Sock5同步失败: "+err.Error(), false)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer resp.Body.Close()
-
-		logNetworkRequest("GET", d.ProxySock5Sync, "Proxy Sock5同步成功", true)
-
-		var buf bytes.Buffer
-		if _, err := io.Copy(&buf, resp.Body); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// 处理IP数据，转换为新的结构
-		lines := strings.Split(buf.String(), "")
-		var ips []IPInfo
-
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-
-			parts := strings.Split(line, ",")
-			if len(parts) >= 2 {
-				ip := parts[0]
-				port := parts[1]
-				code := ""
-				asn := ""
-
-				if len(parts) >= 3 {
-					code = parts[2]
-				}
-				if len(parts) >= 4 {
-					asn = parts[3]
-				}
-
-				ips = append(ips, IPInfo{
-					IP:   ip,
-					Port: port,
-					Code: code,
-					ASN:  asn,
-				})
-			}
-		}
-
-		// 转换为JSON并保存
-		jsonData, err := json.MarshalIndent(ips, "", "  ")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		mu.Lock()
-		err = os.WriteFile(filepath.Join(dbDir, "proxysock5.json"), jsonData, 0644)
+		err = os.WriteFile(filepath.Join(dbDir, "proxyipgroup.json"), buf.Bytes(), 0644)
 		mu.Unlock()
 
 		if err != nil {
@@ -1444,21 +1347,9 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	case "proxyhttp":
+	case "proxyipgroup":
 		if r.Method == http.MethodGet {
-			b, err := os.ReadFile(filepath.Join(dbDir, "proxyhttp.json"))
-			if err != nil {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(b)
-		} else {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	case "proxysock5":
-		if r.Method == http.MethodGet {
-			b, err := os.ReadFile(filepath.Join(dbDir, "proxysock5.json"))
+			b, err := os.ReadFile(filepath.Join(dbDir, "proxyipgroup.json"))
 			if err != nil {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
@@ -1594,12 +1485,11 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var tmp struct {
-			CronExpression        string `json:"cron_expression"`
-			UUIDSyncEnabled       bool   `json:"uuid_sync_enabled"`
-			CDNIPSyncEnabled      bool   `json:"cdnip_sync_enabled"`
-			ProxyIPSyncEnabled    bool   `json:"proxyip_sync_enabled"`
-			ProxyHTTPSyncEnabled  bool   `json:"proxyhttp_sync_enabled"`
-			ProxySock5SyncEnabled bool   `json:"proxysock5_sync_enabled"`
+			CronExpression          string `json:"cron_expression"`
+			UUIDSyncEnabled         bool   `json:"uuid_sync_enabled"`
+			CDNIPSyncEnabled        bool   `json:"cdnip_sync_enabled"`
+			ProxyIPSyncEnabled      bool   `json:"proxyip_sync_enabled"`
+			ProxyIPGroupSyncEnabled bool   `json:"proxyipgroup_sync_enabled"`
 		}
 		body, _ := io.ReadAll(r.Body)
 		log.Printf("接收到的定时任务设置请求: %s", string(body))
@@ -1616,8 +1506,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		if tmp.CronExpression != "" && tmp.UUIDSyncEnabled == d.UUIDSyncEnabled &&
 			tmp.CDNIPSyncEnabled == d.CDNIPSyncEnabled &&
 			tmp.ProxyIPSyncEnabled == d.ProxyIPSyncEnabled &&
-			tmp.ProxyHTTPSyncEnabled == d.ProxyHTTPSyncEnabled &&
-			tmp.ProxySock5SyncEnabled == d.ProxySock5SyncEnabled {
+			tmp.ProxyIPGroupSyncEnabled == d.ProxyIPGroupSyncEnabled {
 			d.CronExpression = tmp.CronExpression
 		} else {
 			// 否则更新所有设置
@@ -1625,8 +1514,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			d.UUIDSyncEnabled = tmp.UUIDSyncEnabled
 			d.CDNIPSyncEnabled = tmp.CDNIPSyncEnabled
 			d.ProxyIPSyncEnabled = tmp.ProxyIPSyncEnabled
-			d.ProxyHTTPSyncEnabled = tmp.ProxyHTTPSyncEnabled
-			d.ProxySock5SyncEnabled = tmp.ProxySock5SyncEnabled
+			d.ProxyIPGroupSyncEnabled = tmp.ProxyIPGroupSyncEnabled
 		}
 
 		_ = saveData(d)
@@ -1765,13 +1653,9 @@ func updateCronJob(d Data) {
 			log.Printf("执行ProxyIP同步任务")
 			syncProxyIPTask(currentData)
 		}
-		if currentData.ProxyHTTPSyncEnabled {
-			log.Printf("执行ProxyHTTP同步任务")
-			syncProxyHTTPTask(currentData)
-		}
-		if currentData.ProxySock5SyncEnabled {
-			log.Printf("执行ProxySock5同步任务")
-			syncProxySock5Task(currentData)
+		if currentData.ProxyIPGroupSyncEnabled {
+			log.Printf("执行ProxyIPGroup同步任务")
+			syncProxyIPGroupTask(currentData)
 		}
 
 		log.Printf("定时任务执行完成 - %s", time.Now().Format("2006-01-02 15:04:05"))
@@ -1892,24 +1776,14 @@ func syncProxyIPTask(d Data) {
 	syncProxyFile(d.ProxyIPSync, "proxyip.json", "Proxy IP")
 }
 
-// ProxyHTTP同步任务
-func syncProxyHTTPTask(d Data) {
-	if d.ProxyHTTPSync == "" {
-		log.Printf("定时任务: ProxyHTTP同步URL未设置")
+// ProxyIPGroup同步任务
+func syncProxyIPGroupTask(d Data) {
+	if d.ProxyIPGroupSync == "" {
+		log.Printf("定时任务: ProxyIPGroup同步URL未设置")
 		return
 	}
 
-	syncProxyFile(d.ProxyHTTPSync, "proxyhttp.json", "Proxy HTTP")
-}
-
-// ProxySock5同步任务
-func syncProxySock5Task(d Data) {
-	if d.ProxySock5Sync == "" {
-		log.Printf("定时任务: ProxySock5同步URL未设置")
-		return
-	}
-
-	syncProxyFile(d.ProxySock5Sync, "proxysock5.json", "Proxy Sock5")
+	syncProxyFile(d.ProxyIPGroupSync, "proxyipgroup.json", "Proxy IP Group")
 }
 
 // 通用代理文件同步函数
@@ -1944,11 +1818,10 @@ func main() {
 	if err := ensureDB(); err != nil {
 		log.Fatalf("ensure db: %v", err)
 	}
-	t, err := template.ParseFS(assets, "templates/*.html")
-	if err != nil {
-		log.Fatalf("parse templates: %v", err)
-	}
-	templates = t
+	// 从文件系统加载模板，支持热重载
+	loadTemplates()
+	// 启动模板监控goroutine
+	go watchTemplates()
 
 	// 创建日志管道
 	logPipe := make(chan string, 100)
@@ -2003,7 +1876,7 @@ func main() {
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 
-	addr := ":8080"
+	addr := ":9090"
 	fmt.Println("listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }

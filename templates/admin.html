@@ -234,12 +234,8 @@
                       <label class="form-check-label" for="proxyipSyncEnabled">ProxyIP同步</label>
                     </div>
                     <div class="form-check form-switch mb-2">
-                      <input class="form-check-input" type="checkbox" id="proxyhttpSyncEnabled">
-                      <label class="form-check-label" for="proxyhttpSyncEnabled">ProxyHTTP同步</label>
-                    </div>
-                    <div class="form-check form-switch mb-2">
-                      <input class="form-check-input" type="checkbox" id="proxysock5SyncEnabled">
-                      <label class="form-check-label" for="proxysock5SyncEnabled">ProxySock5同步</label>
+                      <input class="form-check-input" type="checkbox" id="proxyipgroupSyncEnabled">
+                      <label class="form-check-label" for="proxyipgroupSyncEnabled">ProxyIPGroup同步</label>
                     </div>
                   </div>
                 </div>
@@ -326,8 +322,7 @@
             <div class="d-flex mb-3">
               <div class="btn-group me-3" role="group">
                 <button type="button" class="btn btn-primary active" id="proxyIpBtn">Proxy IP</button>
-                <button type="button" class="btn btn-outline-primary" id="proxyHttpBtn">Proxy HTTP</button>
-                <button type="button" class="btn btn-outline-primary" id="proxySock5Btn">Proxy Sock5</button>
+                <button type="button" class="btn btn-outline-primary" id="proxyIpGroupBtn">Proxy IP Group</button>
               </div>
               <div class="input-group flex-grow-1">
                 <input id="proxySyncUrl" class="form-control" placeholder="同步源">
@@ -435,8 +430,7 @@
         const uuidSyncEnabled = document.getElementById('uuidSyncEnabled').checked;
         const cdnipSyncEnabled = document.getElementById('cdnipSyncEnabled').checked;
         const proxyipSyncEnabled = document.getElementById('proxyipSyncEnabled').checked;
-        const proxyhttpSyncEnabled = document.getElementById('proxyhttpSyncEnabled').checked;
-        const proxysock5SyncEnabled = document.getElementById('proxysock5SyncEnabled').checked;
+        const proxyipgroupSyncEnabled = document.getElementById('proxyipgroupSyncEnabled').checked;
 
         const btn = document.getElementById('saveCronSettings');
         const originalText = btn.innerHTML;
@@ -452,8 +446,7 @@
               uuid_sync_enabled: uuidSyncEnabled,
               cdnip_sync_enabled: cdnipSyncEnabled,
               proxyip_sync_enabled: proxyipSyncEnabled,
-              proxyhttp_sync_enabled: proxyhttpSyncEnabled,
-              proxysock5_sync_enabled: proxysock5SyncEnabled
+              proxyipgroup_sync_enabled: proxyipgroupSyncEnabled
             })
           });
 
@@ -488,7 +481,7 @@
       }
 
       // 为各个开关添加事件监听，使其立即生效
-      ['uuidSyncEnabled', 'cdnipSyncEnabled', 'proxyipSyncEnabled', 'proxyhttpSyncEnabled', 'proxysock5SyncEnabled'].forEach(id => {
+      ['uuidSyncEnabled', 'cdnipSyncEnabled', 'proxyipSyncEnabled', 'proxyipgroupSyncEnabled'].forEach(id => {
         document.getElementById(id).addEventListener('change', updateCronSwitches);
       });
 
@@ -497,8 +490,7 @@
         const uuidSyncEnabled = document.getElementById('uuidSyncEnabled').checked;
         const cdnipSyncEnabled = document.getElementById('cdnipSyncEnabled').checked;
         const proxyipSyncEnabled = document.getElementById('proxyipSyncEnabled').checked;
-        const proxyhttpSyncEnabled = document.getElementById('proxyhttpSyncEnabled').checked;
-        const proxysock5SyncEnabled = document.getElementById('proxysock5SyncEnabled').checked;
+        const proxyipgroupSyncEnabled = document.getElementById('proxyipgroupSyncEnabled').checked;
 
         try {
           // 获取当前的cron表达式
@@ -512,8 +504,7 @@
               uuid_sync_enabled: uuidSyncEnabled,
               cdnip_sync_enabled: cdnipSyncEnabled,
               proxyip_sync_enabled: proxyipSyncEnabled,
-              proxyhttp_sync_enabled: proxyhttpSyncEnabled,
-              proxysock5_sync_enabled: proxysock5SyncEnabled
+              proxyipgroup_sync_enabled: proxyipgroupSyncEnabled
             })
           });
 
@@ -529,15 +520,14 @@
         if(r.ok){
           const d=await r.json();
           document.getElementById('cdnSyncUrl').value = d.cdnipsync || '';
-          document.getElementById('proxySyncUrl').value = d.proxyipsync || '';
+          // proxySyncUrl 将在 loadProxyData 函数中根据当前选择的代理类型加载
 
           // 加载定时任务设置
           document.getElementById('cronExpression').value = d.cron_expression || '';
           document.getElementById('uuidSyncEnabled').checked = d.uuid_sync_enabled || false;
           document.getElementById('cdnipSyncEnabled').checked = d.cdnip_sync_enabled || false;
           document.getElementById('proxyipSyncEnabled').checked = d.proxyip_sync_enabled || false;
-          document.getElementById('proxyhttpSyncEnabled').checked = d.proxyhttp_sync_enabled || false;
-          document.getElementById('proxysock5SyncEnabled').checked = d.proxysock5_sync_enabled || false;
+          document.getElementById('proxyipgroupSyncEnabled').checked = d.proxyipgroup_sync_enabled || false;
 
           // 更新下次执行时间
           await updateNextRunTime();
@@ -587,15 +577,9 @@
         await loadProxyData();
       });
 
-      document.getElementById('proxyHttpBtn').addEventListener('click', async () => {
-        setActiveProxyButton('proxyHttpBtn');
-        currentProxyType = 'http';
-        await loadProxyData();
-      });
-
-      document.getElementById('proxySock5Btn').addEventListener('click', async () => {
-        setActiveProxyButton('proxySock5Btn');
-        currentProxyType = 'sock5';
+      document.getElementById('proxyIpGroupBtn').addEventListener('click', async () => {
+        setActiveProxyButton('proxyIpGroupBtn');
+        currentProxyType = 'ipgroup';
         await loadProxyData();
       });
 
@@ -627,13 +611,9 @@
             endpoint = '/api/proxyip';
             syncField = 'proxyipsync';
             break;
-          case 'http':
-            endpoint = '/api/proxyhttp';
-            syncField = 'proxyhttpsync';
-            break;
-          case 'sock5':
-            endpoint = '/api/proxysock5';
-            syncField = 'proxysock5sync';
+          case 'ipgroup':
+            endpoint = '/api/proxyipgroup';
+            syncField = 'proxyipgroupsync';
             break;
         }
 
@@ -671,11 +651,8 @@
           case 'ip':
             syncField = 'proxyipsync';
             break;
-          case 'http':
-            syncField = 'proxyhttpsync';
-            break;
-          case 'sock5':
-            syncField = 'proxysock5sync';
+          case 'ipgroup':
+            syncField = 'proxyipgroupsync';
             break;
         }
 
@@ -697,11 +674,8 @@
           case 'ip':
             fileName = 'proxyip.json';
             break;
-          case 'http':
-            fileName = 'proxyhttp.json';
-            break;
-          case 'sock5':
-            fileName = 'proxysock5.json';
+          case 'ipgroup':
+            fileName = 'proxyipgroup.json';
             break;
         }
 
@@ -724,11 +698,8 @@
             case 'ip':
               apiEndpoint = '/api/sync_proxyip';
               break;
-            case 'http':
-              apiEndpoint = '/api/sync_proxyhttp';
-              break;
-            case 'sock5':
-              apiEndpoint = '/api/sync_proxysock5';
+            case 'ipgroup':
+              apiEndpoint = '/api/sync_proxyipgroup';
               break;
           }
 
@@ -742,11 +713,8 @@
             case 'ip':
               fileName = 'proxyip.json';
               break;
-            case 'http':
-              fileName = 'proxyhttp.json';
-              break;
-            case 'sock5':
-              fileName = 'proxysock5.json';
+            case 'ipgroup':
+              fileName = 'proxyipgroup.json';
               break;
           }
 

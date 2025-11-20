@@ -1247,13 +1247,9 @@
                             <span>ProxyIP</span>
                             <span style="font-size: 12px; color: #888;">IP代理</span>
                         </button>
-                        <button class="access-method-button" id="proxyhttp-btn" data-method="proxyhttp">
-                            <span>ProxyHTTP</span>
-                            <span style="font-size: 12px; color: #888;">HTTP代理</span>
-                        </button>
-                        <button class="access-method-button" id="proxysock5-btn" data-method="proxysock5">
-                            <span>ProxySocks5</span>
-                            <span style="font-size: 12px; color: #888;">Socks5代理</span>
+                        <button class="access-method-button" id="proxygroup-btn" data-method="proxygroup">
+                            <span>Proxy IP Group</span>
+                            <span style="font-size: 12px; color: #888;">IP代理地区组</span>
                         </button>
                     </div>
                 </div>
@@ -1266,7 +1262,7 @@
                 </div>
 
                 <!-- 代理地址选择 -->
-                <div id="proxy-address-step" style="display: none; flex-direction: column; justify-content: flex-start; align-items: center; height: 100%; width: 100%; overflow-y: auto;">
+                <div id="proxy-address-step" style="display: none; flex-direction: column; justify-content: center; align-items: center; height: 100%; width: 100%; overflow-y: auto;">
                     <div class="proxy-code-filter-container" id="proxy-code-filter-container" style="display: none; flex-wrap: wrap; gap: 10px; margin: 15px 0; justify-content: center;">
                         <!-- 代理代码筛选按钮将通过JavaScript动态加载 -->
                     </div>
@@ -1824,7 +1820,7 @@
                         protocol: null,  // 选择的协议 'http' 或 'https'
                         port: null,  // 选择的端口
                         worker: null,  // 选择的worker
-                        proxyMethod: null,  // 'proxyip', 'proxyhttp', 'proxysock5'
+                        proxyMethod: null,  // 'proxyip', 'proxygroup'
                         proxySelection: null  // 选择的代理
                     };
                 }
@@ -1835,7 +1831,7 @@
                     accessSelection: null,  // 选择的域名或IP
                     port: null,  // 选择的端口
                     worker: null,  // 选择的worker
-                    proxyMethod: null,  // 'proxyip', 'proxyhttp', 'proxysock5'
+                    proxyMethod: null,  // 'proxyip', 'proxygroup'
                     proxySelection: null  // 选择的代理
                 };
             }
@@ -1930,7 +1926,7 @@
 
                             // 如果已选择代理方式，恢复按钮选中状态
                             if (window.userSelections.proxyMethod) {
-                                document.querySelectorAll('#proxyip-btn, #proxyhttp-btn, #proxysock5-btn').forEach(btn => {
+                                document.querySelectorAll('#proxyip-btn, #proxygroup-btn').forEach(btn => {
                                     btn.classList.remove('selected');
                                     if (btn.dataset.method === window.userSelections.proxyMethod) {
                                         btn.classList.add('selected');
@@ -2065,7 +2061,7 @@
 
 
             // 添加代理方式按钮选择逻辑
-            const proxyMethodButtons = document.querySelectorAll('#proxyip-btn, #proxyhttp-btn, #proxysock5-btn');
+            const proxyMethodButtons = document.querySelectorAll('#proxyip-btn, #proxygroup-btn');
             proxyMethodButtons.forEach(button => {
                 button.addEventListener('click', function() {
                     // 移除所有代理方式按钮的选中状态
@@ -2092,6 +2088,76 @@
                     window.updateLeftStepStatus(5, '已配置');
                 });
             });
+
+            // 加载Proxy IP Group数据函数
+            window.loadProxyGroupAddresses = function() {
+                const addressContainer = document.getElementById('proxy-address-container');
+                const codeFilterContainer = document.getElementById('proxy-code-filter-container');
+                addressContainer.innerHTML = ''; // 清空容器
+                codeFilterContainer.innerHTML = ''; // 清空code筛选按钮容器
+                codeFilterContainer.style.display = 'flex'; // 显示code筛选按钮容器
+
+                // 获取当前UUID
+                const currentUUID = document.getElementById('uuid-input').value;
+
+                // 从API获取Proxy IP Group数据
+                fetch(`/api/auth?uuid=${currentUUID}&get_proxyipgroup=true`)
+                    .then(response => {
+                        if (!response.ok) {
+                            console.error('获取Proxy IP Group数据失败');
+                            throw new Error('获取Proxy IP Group数据失败');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // 存储原始数据
+                        window.proxyGroupData = data;
+
+                        // 创建地区代码按钮
+                        Object.keys(data).forEach(code => {
+                            // 跳过ID键
+                            if (code === 'ID') return;
+
+                            const codeButton = document.createElement('button');
+                            codeButton.className = 'code-filter-button';
+                            codeButton.dataset.code = code;
+
+                            // 创建橙色加粗的地区代码和小字数字
+                            codeButton.innerHTML = `<span style="color: #ff9800; font-weight: bold;">${code}</span> &nbsp; <span style="font-size: 12px; color: #888;">${data[code]}</span>`;
+
+                            // 设置按钮样式，使其上下居中
+                            codeButton.style.display = 'flex';
+                            codeButton.style.alignItems = 'center';
+                            codeButton.style.justifyContent = 'center';
+
+                            // 添加点击事件
+                            codeButton.addEventListener('click', function() {
+                                // 移除所有按钮的选中状态
+                                document.querySelectorAll('.code-filter-button').forEach(btn => {
+                                    btn.classList.remove('selected');
+                                });
+
+                                // 只选中当前点击的按钮
+                                this.classList.add('selected');
+
+                                // 保存用户选择的地区代码
+                                window.userSelections.proxySelection = code;
+
+                                // 保存到localStorage
+                                localStorage.setItem('userSelections', JSON.stringify(window.userSelections));
+
+                                // 在左侧第六步子容器右上角显示选择状态
+                                window.updateLeftStepStatus(6, '已配置');
+                            });
+
+                            codeFilterContainer.appendChild(codeButton);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('加载Proxy IP Group数据失败:', error);
+                        // 不显示错误提示，保持容器为空
+                    });
+            }
 
             // 加载代理HTTP地址函数
             function loadProxyHTTPAddresses() {
@@ -2533,7 +2599,7 @@
                         protocol: null,  // 选择的协议 'http' 或 'https'
                         port: null,  // 选择的端口
                         worker: null,  // 选择的worker
-                        proxyMethod: null,  // 'proxyip', 'proxyhttp', 'proxysock5'
+                        proxyMethod: null,  // 'proxyip', 'proxygroup'
                         proxySelection: null  // 选择的代理
                     };
 
@@ -2555,7 +2621,7 @@
                         btn.classList.remove('selected');
                     });
                     // 清除所有代理方式按钮的选中状态
-                    document.querySelectorAll('#proxyip-btn, #proxyhttp-btn, #proxysock5-btn').forEach(btn => {
+                    document.querySelectorAll('#proxyip-btn, #proxygroup-btn').forEach(btn => {
                         btn.classList.remove('selected');
                     });
                     // 清除左侧步骤状态
@@ -2800,7 +2866,7 @@
                 accessSelection: null,  // 选择的域名或IP
                 port: null,  // 选择的端口
                 worker: null,  // 选择的worker
-                proxyMethod: null,  // 'proxyip', 'proxyhttp', 'proxysock5'
+                proxyMethod: null,  // 'proxyip', 'proxygroup'
                 proxySelection: null  // 选择的代理
             };
 
@@ -2931,10 +2997,8 @@
                     // 根据选择的代理方式加载相应数据
                     if (window.userSelections.proxyMethod === 'proxyip') {
                         loadProxyIPAddresses();
-                    } else if (window.userSelections.proxyMethod === 'proxyhttp') {
-                        loadProxyHTTPAddresses();
-                    } else if (window.userSelections.proxyMethod === 'proxysock5') {
-                        loadProxySocks5Addresses();
+                    } else if (window.userSelections.proxyMethod === 'proxygroup') {
+                        window.loadProxyGroupAddresses();
                     }
                 } else if (window.currentStep > 6) {
                     // 最终步：生成配置
@@ -3047,9 +3111,19 @@
                 const port = userSelections.port;
                 const routeAddress = userSelections.worker;
                 const proxyMethod = userSelections.proxyMethod;
-                const proxyAddress = userSelections.proxySelection;
+                const proxySelection = userSelections.proxySelection;
 
-                const configUrl = `vless://${uuid}@${accessAddress}:${port}?encryption=none&security=tls&sni=${routeAddress}&fp=random&type=ws&host=${routeAddress}&path=/${proxyMethod}://${proxyAddress}#railgun`;
+                // 根据代理方式生成不同的path
+                let path;
+                if (proxyMethod === 'proxygroup') {
+                    // Proxy IP Group使用/proxyip=地区代码的格式
+                    path = `/proxyip=${proxySelection}`;
+                } else {
+                    // 其他代理方式使用原有格式
+                    path = `/${proxyMethod}://${proxySelection}`;
+                }
+
+                const configUrl = `vless://${uuid}@${accessAddress}:${port}?encryption=none&security=tls&sni=${routeAddress}&fp=random&type=ws&host=${routeAddress}&path=${path}#railgun`;
 
                 // 显示配置信息
                 showConfigResult(configUrl);
