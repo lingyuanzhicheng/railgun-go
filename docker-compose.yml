@@ -1,7 +1,7 @@
 services:
-  railgun:
-    image: moeceo/railgun:latest
-    container_name: railgun
+  railgun-go:
+    image: moeceo/railgun-go:latest
+    container_name: railgun-go
     network_mode: bridge
     restart: always
     ports:
