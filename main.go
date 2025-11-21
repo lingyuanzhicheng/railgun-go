@@ -1586,6 +1586,59 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(fmt.Sprintf(`{"next_run": "%s", "next_run_timestamp": %d}`, nextRunStr, nextRunTimestamp)))
+	case "status":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 获取worker参数
+		worker := r.URL.Query().Get("worker")
+		if worker == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "worker parameter is required"})
+			return
+		}
+
+		// 确保URL格式正确
+		if !strings.HasPrefix(worker, "http://") && !strings.HasPrefix(worker, "https://") {
+			worker = "https://" + worker
+		}
+
+		// 向worker发送请求
+		apiURL := worker + "/requests"
+		resp, err := http.Get(apiURL)
+		if err != nil {
+			logNetworkRequest("GET", apiURL, "获取worker状态失败: "+err.Error(), false)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to fetch worker status"})
+			return
+		}
+		defer resp.Body.Close()
+
+		logNetworkRequest("GET", apiURL, "获取worker状态成功", true)
+
+		// 读取响应并转发给客户端
+		var buf bytes.Buffer
+		if _, err := io.Copy(&buf, resp.Body); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read response"})
+			return
+		}
+
+		// 检查响应状态码
+		if resp.StatusCode != http.StatusOK {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "worker returned error status"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(buf.Bytes())
 	default:
 		http.Error(w, "unknown api", http.StatusNotFound)
 	}
@@ -1876,7 +1929,7 @@ func main() {
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 
-	addr := ":9090"
+	addr := ":8080"
 	fmt.Println("listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
