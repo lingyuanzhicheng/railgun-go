@@ -1,0 +1,7 @@
+.git
+.gitignore
+*.md
+.env
+railgun-go
+config/railgun.db
+workers.js

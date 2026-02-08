@@ -1,0 +1,13 @@
+services:
+  railgun-go:
+    build: .
+    image: railgun-go:latest
+    container_name: railgun-go
+    network_mode: bridge
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Shanghai

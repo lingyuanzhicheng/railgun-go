@@ -1,0 +1,11 @@
+{
+    "authkey": "123456",
+    "port": 8080,
+    "base": "/",
+    "data": "sqlite",
+    "panel": {
+        "type": "xmplus",
+        "url": "https://railgun.domain",
+        "key": "proxypanelkey"
+    }
+}

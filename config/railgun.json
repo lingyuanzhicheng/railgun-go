@@ -1,0 +1,14 @@
+[
+    {
+        "id": 1,
+        "name": "alpha",
+        "domain": "alpha.railgun.domain",
+        "requests": 100000
+    },
+    {
+        "id": 2,
+        "name": "beta",
+        "domain": "beta.railgun.domain",
+        "requests": 100000
+    }
+]
