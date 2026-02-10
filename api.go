@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"railgun-go/proxyip"
 	"strconv"
 	"strings"
 )
 
 type APIRequest struct {
-	UUID string `json:"uuid"`
-	IP   string `json:"ip"`
+	UUID    string  `json:"uuid"`
+	IP      string  `json:"ip"`
+	ProxyIP *string `json:"proxyip"`
 }
 
 type APIResponse struct {
-	Auth bool `json:"auth"`
+	Auth    bool   `json:"auth"`
+	ProxyIP string `json:"proxyip,omitempty"`
 }
 
 func StartAPIServer() {
@@ -133,7 +136,30 @@ func handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("API请求验证成功 - 节点 %d, 用户 %d, uuid %s, ip %s (剩余ipquota: %d)\n",
 		railgunID, uuidRecord.UID, req.UUID, req.IP, ipquota-1)
 
+	response := APIResponse{Auth: true}
+
+	if req.ProxyIP != nil {
+		proxyipCode := strings.ToUpper(*req.ProxyIP)
+		if proxyipCode == "" {
+			randomProxyIP, err := proxyip.GetRandomProxyIP()
+			if err != nil {
+				fmt.Printf("获取随机proxyip失败: %v\n", err)
+			} else {
+				response.ProxyIP = randomProxyIP
+				fmt.Printf("返回随机proxyip: %s\n", randomProxyIP)
+			}
+		} else {
+			randomProxyIP, err := proxyip.GetRandomProxyIPByCode(proxyipCode)
+			if err != nil {
+				fmt.Printf("根据code %s 获取proxyip失败: %v\n", proxyipCode, err)
+			} else {
+				response.ProxyIP = randomProxyIP
+				fmt.Printf("返回code %s 的proxyip: %s\n", proxyipCode, randomProxyIP)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(APIResponse{Auth: true})
+	json.NewEncoder(w).Encode(response)
 }

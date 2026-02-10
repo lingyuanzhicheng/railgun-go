@@ -11,7 +11,7 @@ export default {
             proxyIP = env.PROXYIP || env.proxyip || proxyIP;
             proxyIPs = await 整理(proxyIP);
             proxyIP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
-            proxyIP = proxyIP ? proxyIP.toLowerCase() : request.cf.colo + '.proxyip.cmliussss.net';
+            proxyIP = proxyIP ? proxyIP.toLowerCase() : '';
 
             if (env.CFPORTS) httpsPorts = await 整理(env.CFPORTS);
             if (env.BAN) banHosts = await 整理(env.BAN);
@@ -123,30 +123,16 @@ export default {
                 }
 
             } else {
-                // WebSocket 分支
+                let directProxyIP = '';
+                let userProxyIP = '';
+                
                 if (new RegExp('/proxyip://', 'i').test(url.pathname)) {
-                    proxyIP = url.pathname.toLowerCase().split('/proxyip://')[1];
+                    directProxyIP = url.pathname.toLowerCase().split('/proxyip://')[1];
                 } else if (new RegExp('/proxyip=', 'i').test(url.pathname)) {
-                    const groupCode = url.pathname.split('/proxyip=')[1];
-                    const proxyIPGroupURL = env.ProxyIPGroup;
-                    if (proxyIPGroupURL && groupCode) {
-                        try {
-                            const fullURL = `${proxyIPGroupURL}/${groupCode}.json`;
-                            const response = await fetch(fullURL);
-                            if (response.ok) {
-                                const data = await response.json();
-                                if (Array.isArray(data) && data.length > 0) {
-                                    const randomItem = data[Math.floor(Math.random() * data.length)];
-                                    proxyIP = `${randomItem.ip}:${randomItem.port}`;
-                                }
-                            }
-                        } catch (e) {
-                            // 获取或解析失败，保持 proxyIP 为初始值
-                        }
-                    }
+                    userProxyIP = url.pathname.split('/proxyip=')[1];
                 }
                 
-                return handleWebSocket(request, env, clientIP);
+                return handleWebSocket(request, env, clientIP, directProxyIP, userProxyIP);
             }
         } catch (err) {
             return new Response(err.toString());
@@ -226,9 +212,13 @@ async function nginx() {
 	`;
 }
 
-async function handleWebSocket(request, env, clientIP) {
+async function handleWebSocket(request, env, clientIP, directProxyIP, userProxyIP) {
     const [client, ws] = Object.values(new WebSocketPair());
     ws.accept();
+
+    if (directProxyIP) {
+        proxyIP = directProxyIP;
+    }
 
     let remote = null,
         udpWriter = null,
@@ -306,15 +296,21 @@ async function handleWebSocket(request, env, clientIP) {
         const apiUrl = `${railgun}/api/${id}?key=${authkey}`;
 
         try {
+            const requestBody = {
+                uuid: uuidWithDashes,
+                ip: clientIP
+            };
+
+            if (!directProxyIP) {
+                requestBody.proxyip = userProxyIP || '';
+            }
+
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    uuid: uuidWithDashes,
-                    ip: clientIP
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
@@ -329,6 +325,10 @@ async function handleWebSocket(request, env, clientIP) {
                 console.warn(`Unauthorized UUID: ${uuidWithDashes}, IP: ${clientIP}`);
                 ws.close(1008, "Unauthorized");
                 return;
+            }
+
+            if (!directProxyIP && result.proxyip) {
+                proxyIP = result.proxyip;
             }
 
             validated = true;

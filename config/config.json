@@ -7,5 +7,16 @@
         "type": "xmplus",
         "url": "https://railgun.domain",
         "key": "proxypanelkey"
+    },
+    "proxyip": {
+        "type": "local",
+        "data": "sqlite",
+        "cron": "0 12 */3 * *",
+        "remote": "https://raw.githubusercontent.com/lingyuanzhicheng/railgun-ipsync/refs/heads/main/proxyip/proxyip.db",
+        "check": {
+            "url": "https://check.railgun.domain",
+            "key": "123456",
+            "mode": "valid"
+        }
     }
 }

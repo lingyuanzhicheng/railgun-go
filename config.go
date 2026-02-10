@@ -13,12 +13,27 @@ type Config struct {
 	Base    string      `json:"base"`
 	Data    string      `json:"data"`
 	Panel   PanelConfig `json:"panel"`
+	ProxyIP ProxyIPConfig `json:"proxyip"`
 }
 
 type PanelConfig struct {
 	Type string `json:"type"`
 	URL  string `json:"url"`
 	Key  string `json:"key"`
+}
+
+type ProxyIPConfig struct {
+	Type   string         `json:"type"`
+	Data   string         `json:"data"`
+	Cron   string         `json:"cron"`
+	Remote string         `json:"remote"`
+	Check  ProxyIPCheck    `json:"check"`
+}
+
+type ProxyIPCheck struct {
+	URL  string `json:"url"`
+	Key  string `json:"key"`
+	Mode string `json:"mode"`
 }
 
 type Node struct {
